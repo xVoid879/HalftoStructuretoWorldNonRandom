@@ -18,7 +18,7 @@ Or if your doing structure to non-random
 ```
 Or if your doing river to half
 ```
-!./abc structure PATHTORIVERSEEDS PATHTOOUTPUT
+!./abc river PATHTORIVERSEEDS PATHTOOUTPUT
 ```
 
 # Note
