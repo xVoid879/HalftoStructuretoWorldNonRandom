@@ -14,5 +14,18 @@ Or if your doing structure to non-random
 ```
 !./abc structure PATHOFSTRUCTURESEEDS
 ```
+Or if your doing river to half
+```
+!./abc structure PATHOFRIVERSEEDS
+```
 
-might add river to half seed converter
+# Note
+Also if you copy the file path
+```
+./content/src/structure_seeds.txt
+```
+
+Remove the content part
+```
+./src/structure_seeds.txt
+```
