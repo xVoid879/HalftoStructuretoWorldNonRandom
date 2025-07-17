@@ -112,9 +112,9 @@ void structureToWorldSeedsGPU(const char* inputFile, const char* outputFile) {
 int main(int argc, char** argv) {
     if (argc != 4) {
         fprintf(stderr, "Usage:\n");
-        fprintf(stderr, "  %s river input.txtPATH", argv[0]);
-        fprintf(stderr, "  %s half input.txtPATH", argv[0]);
-        fprintf(stderr, "  %s structure input.txtPATH", argv[0]);
+        fprintf(stderr, "  %s river INPUTFILE OUTPUTFILE", argv[0]);
+        fprintf(stderr, "  %s half INPUTFILE OUTPUTFILE", argv[0]);
+        fprintf(stderr, "  %s structure INPUTFILE OUTPUTFILE", argv[0]);
         return 1;
     }
 
