@@ -14,3 +14,5 @@ Or if your doing structure to non-random
 ```
 !./abc structure PATHOFSTRUCTURESEEDS
 ```
+
+might add river to half seed converter
