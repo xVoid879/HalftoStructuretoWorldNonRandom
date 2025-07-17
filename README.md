@@ -8,15 +8,15 @@ Compile on Colab using this
 ```
 Then run using this
 ```
-!./abc half PATHTOHALFSEEDS
+!./abc half PATHTOHALFSEEDS PATHTOOUTPUT
 ```
 Or if your doing structure to non-random
 ```
-!./abc structure PATHOFSTRUCTURESEEDS
+!./abc structure PATHTOSTRUCTURESEEDS PATHTOOUTPUT
 ```
 Or if your doing river to half
 ```
-!./abc structure PATHOFRIVERSEEDS
+!./abc structure PATHTORIVERSEEDS PATHTOOUTPUT
 ```
 
 # Note
@@ -29,3 +29,5 @@ Remove the content part
 ```
 ./src/structure_seeds.txt
 ```
+
+Sorry that you have to create your own output file. The file writing is not working and I'm too lazy to fix it.
