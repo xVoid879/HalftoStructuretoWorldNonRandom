@@ -33,3 +33,12 @@ Remove the content part
 ```
 
 Sorry that you have to create your own output file. The file writing is not working and I'm too lazy to fix it.
+
+# Info
+One Half Seed = 65536 Structure Seeds
+
+One Structure Seed = 65536 World Seeds
+
+One River Seed = 64 Half Seeds
+
+If you want to go from structure to random world seeds (which is 0-2 world seeds from one structure seed) look at elenaran's program: https://github.com/elenaran/structure_to_random
