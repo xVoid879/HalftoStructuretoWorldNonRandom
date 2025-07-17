@@ -2,6 +2,8 @@
 Basically a Cuda Program to turn a list of half seeds into structure seeds or turn a list of structure seeds into non-random world seeds. (Also can turn a list of river seeds into halfseeds)
 
 # Compile on Colab
+Click Runtime, and select T4 GPU.
+
 Compile on Colab using this
 ```
 !nvcc -o abc cuda.cu
