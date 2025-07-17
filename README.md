@@ -1,5 +1,5 @@
 # HalftoStructuretoWorldNonRandom
-Basically a Cuda Program to turn a list of half seeds into structure seeds or turn a list of structure seeds into non-random world seeds.
+Basically a Cuda Program to turn a list of half seeds into structure seeds or turn a list of structure seeds into non-random world seeds. (Also can turn a list of river seeds into halfseeds)
 
 # Compile on Colab
 Compile on Colab using this
