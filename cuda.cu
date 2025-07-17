@@ -2,209 +2,134 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <inttypes.h>
+#include <cuda.h>
 
 #define THREADS_PER_BLOCK 256
-#define EXPANSION_SIZE 65536  // 2^16
+#define STRUCTURE_MULTIPLIER 65536
 
-// halftostructrue
-__global__ void halfToStructureKernel(
-    uint64_t* halfSeeds, int numHalfSeeds, uint64_t* outStructureSeeds)
-{
+__global__ void structureToWorldKernel(uint64_t* structureSeeds, uint64_t* worldSeeds, int count) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int totalOutputSeeds = numHalfSeeds * EXPANSION_SIZE;
-    if (idx >= totalOutputSeeds) return;
+    int seedIdx = idx / STRUCTURE_MULTIPLIER;
+    int lowerBits = idx % STRUCTURE_MULTIPLIER;
 
-    int halfSeedIdx = idx / EXPANSION_SIZE;
-    int upperBits = idx % EXPANSION_SIZE;
-
-    uint64_t halfSeed = halfSeeds[halfSeedIdx];
-    uint64_t structureSeed = ((uint64_t)upperBits << 32) | (halfSeed & 0xFFFFFFFFULL);
-
-    outStructureSeeds[idx] = structureSeed;
+    if (seedIdx < count) {
+        worldSeeds[idx] = (structureSeeds[seedIdx] << 16) | lowerBits;
+    }
 }
 
-// structuretononrandom
-__global__ void structureToWorldKernel(
-    uint64_t* structureSeeds, int numStructureSeeds, int64_t* outWorldSeeds)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int totalOutputSeeds = numStructureSeeds * EXPANSION_SIZE;
-    if (idx >= totalOutputSeeds) return;
-
-    int structSeedIdx = idx / EXPANSION_SIZE;
-    int upperBits = idx % EXPANSION_SIZE;
-
-    uint64_t structureSeed = structureSeeds[structSeedIdx];
-    uint64_t lower48 = structureSeed & 0xFFFFFFFFFFFFULL;
-
-    uint64_t combined = ((uint64_t)upperBits << 48) | lower48;
-
-    int64_t worldSeed = (int64_t)(combined + 0x8000000000000000ULL) - 0x8000000000000000LL;
-
-    outWorldSeeds[idx] = worldSeed;
+void errorExit(const char* msg) {
+    fprintf(stderr, "%s\n", msg);
+    exit(1);
 }
 
-// reads seeds
-// free seeds
-uint64_t* readSeedsFromFile(const char* filename, int* outCount) {
-    FILE* f = fopen(filename, "r");
-    if (!f) {
-        fprintf(stderr, "Error opening file %s\n", filename);
-        return NULL;
+void riverToHalfSeeds(const char* inputFile, const char* outputFile) {
+    FILE* in = fopen(inputFile, "r");
+    if (!in) errorExit("Failed to open river seed input file");
+
+    FILE* out = fopen(outputFile, "w");
+    if (!out) errorExit("Failed to open output file for half seeds");
+
+    uint32_t riverSeed;
+    while (fscanf(in, "%" SCNu32, &riverSeed) == 1) {
+        if (riverSeed >= (1 << 26)) {
+            fprintf(stderr, "Invalid river seed: %u\n", riverSeed);
+            continue;
+        }
+        for (uint32_t upper = 0; upper < 64; upper++) {
+            uint64_t half = ((uint64_t)upper << 26) | riverSeed;
+            fprintf(out, "%" PRIu64 "\n", half);
+        }
     }
 
-    int capacity = 1024;
-    uint64_t* seeds = (uint64_t*)malloc(capacity * sizeof(uint64_t));
+    fclose(in);
+    fclose(out);
+    printf("Finished converting river to half seeds.\n");
+}
+
+void halfToStructureSeeds(const char* inputFile, const char* outputFile) {
+    FILE* in = fopen(inputFile, "r");
+    if (!in) errorExit("Failed to open half seed input file");
+
+    FILE* out = fopen(outputFile, "w");
+    if (!out) errorExit("Failed to open output file for structure seeds");
+
+    uint64_t halfSeed;
+    while (fscanf(in, "%" SCNu64, &halfSeed) == 1) {
+        uint64_t structureSeed = halfSeed ^ 0x5DEECE66DULL;
+        fprintf(out, "%" PRIu64 "\n", structureSeed);
+    }
+
+    fclose(in);
+    fclose(out);
+    printf("Finished converting half to structure seeds.\n");
+}
+
+void structureToWorldSeedsGPU(const char* inputFile, const char* outputFile) {
+    FILE* in = fopen(inputFile, "r");
+    if (!in) errorExit("Error opening input structure_seeds.txt");
+
+    uint64_t* hostStructureSeeds = (uint64_t*)malloc(sizeof(uint64_t) * 500000);
     int count = 0;
-    char line[256];
 
-    while (fgets(line, sizeof(line), f)) {
-        if (count >= capacity) {
-            capacity *= 2;
-            uint64_t* newSeeds = (uint64_t*)realloc(seeds, capacity * sizeof(uint64_t));
-            if (!newSeeds) {
-                fprintf(stderr, "Memory allocation error\n");
-                free(seeds);
-                fclose(f);
-                return NULL;
-            }
-            seeds = newSeeds;
-        }
-        long long int seed = 0;
-        if (sscanf(line, "%lld", &seed) == 1) {
-            seeds[count++] = (uint64_t)seed;
-        }
+    while (fscanf(in, "%" SCNu64, &hostStructureSeeds[count]) == 1) {
+        count++;
     }
+    fclose(in);
+    printf("Read %d structure seeds from %s\n", count, inputFile);
 
-    fclose(f);
-    *outCount = count;
-    return seeds;
-}
+    uint64_t* devStructureSeeds;
+    uint64_t* devWorldSeeds;
+    size_t totalWorldSeeds = count * STRUCTURE_MULTIPLIER;
 
-// write to file
-void writeSeedsToFileInt64(const char* filename, int64_t* seeds, size_t count) {
-    FILE* f = fopen(filename, "w");
-    if (!f) {
-        fprintf(stderr, "Error opening output file %s\n", filename);
-        return;
-    }
-    for (size_t i = 0; i < count; i++) {
-        fprintf(f, "%lld\n", (long long)seeds[i]);
-    }
-    fclose(f);
-}
+    cudaMalloc(&devStructureSeeds, sizeof(uint64_t) * count);
+    cudaMalloc(&devWorldSeeds, sizeof(uint64_t) * totalWorldSeeds);
 
-// write to file.
-void writeSeedsToFileUint64(const char* filename, uint64_t* seeds, size_t count) {
-    FILE* f = fopen(filename, "w");
-    if (!f) {
-        fprintf(stderr, "Error opening output file %s\n", filename);
-        return;
+    cudaMemcpy(devStructureSeeds, hostStructureSeeds, sizeof(uint64_t) * count, cudaMemcpyHostToDevice);
+
+    int blocks = (totalWorldSeeds + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    printf("Launching kernel with %d blocks, %d threads per block\n", blocks, THREADS_PER_BLOCK);
+    structureToWorldKernel<<<blocks, THREADS_PER_BLOCK>>>(devStructureSeeds, devWorldSeeds, count);
+    cudaDeviceSynchronize();
+
+    uint64_t* hostWorldSeeds = (uint64_t*)malloc(sizeof(uint64_t) * totalWorldSeeds);
+    cudaMemcpy(hostWorldSeeds, devWorldSeeds, sizeof(uint64_t) * totalWorldSeeds, cudaMemcpyDeviceToHost);
+
+    FILE* out = fopen(outputFile, "w");
+    if (!out) errorExit("Failed to open output file for world seeds");
+    for (size_t i = 0; i < totalWorldSeeds; i++) {
+        fprintf(out, "%" PRIu64 "\n", hostWorldSeeds[i]);
     }
-    for (size_t i = 0; i < count; i++) {
-        fprintf(f, "%llu\n", (unsigned long long)seeds[i]);
-    }
-    fclose(f);
+    fclose(out);
+
+    cudaFree(devStructureSeeds);
+    cudaFree(devWorldSeeds);
+    free(hostStructureSeeds);
+    free(hostWorldSeeds);
+    printf("Finished writing %zu world seeds to %s\n", totalWorldSeeds, outputFile);
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        printf("Usage: %s half|structure [input_file] [output_file]\n", argv[0]);
+    if (argc != 4) {
+        fprintf(stderr, "Usage:\n");
+        fprintf(stderr, "  %s river input.txtPATH", argv[0]);
+        fprintf(stderr, "  %s half input.txtPATH", argv[0]);
+        fprintf(stderr, "  %s structure input.txtPATH", argv[0]);
         return 1;
     }
 
     const char* mode = argv[1];
-    const char* inputFile = NULL;
-    const char* outputFile = NULL;
+    const char* inputFile = argv[2];
+    const char* outputFile = argv[3];
 
-    if (strcmp(mode, "half") == 0) {
-        inputFile = (argc >= 3) ? argv[2] : "half_seeds.txt";
-        outputFile = (argc >= 4) ? argv[3] : "structure_seeds.txt";
-
-        int numHalfSeeds = 0;
-        uint64_t* halfSeeds = readSeedsFromFile(inputFile, &numHalfSeeds);
-        if (!halfSeeds) return 1;
-
-        printf("Read %d half seeds from %s\n", numHalfSeeds, inputFile);
-
-        size_t totalOutputSeeds = (size_t)numHalfSeeds * EXPANSION_SIZE;
-
-        uint64_t* structureSeedsHost = (uint64_t*)malloc(totalOutputSeeds * sizeof(uint64_t));
-        if (!structureSeedsHost) {
-            fprintf(stderr, "Host memory allocation failed\n");
-            free(halfSeeds);
-            return 1;
-        }
-
-        uint64_t* halfSeedsDevice;
-        uint64_t* structureSeedsDevice;
-
-        cudaMalloc(&halfSeedsDevice, numHalfSeeds * sizeof(uint64_t));
-        cudaMalloc(&structureSeedsDevice, totalOutputSeeds * sizeof(uint64_t));
-
-        cudaMemcpy(halfSeedsDevice, halfSeeds, numHalfSeeds * sizeof(uint64_t), cudaMemcpyHostToDevice);
-
-        int blocks = (totalOutputSeeds + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-        printf("Launching kernel with %d blocks, %d threads per block\n", blocks, THREADS_PER_BLOCK);
-
-        halfToStructureKernel<<<blocks, THREADS_PER_BLOCK>>>(halfSeedsDevice, numHalfSeeds, structureSeedsDevice);
-        cudaDeviceSynchronize();
-
-        cudaMemcpy(structureSeedsHost, structureSeedsDevice, totalOutputSeeds * sizeof(uint64_t), cudaMemcpyDeviceToHost);
-
-        writeSeedsToFileUint64(outputFile, structureSeedsHost, totalOutputSeeds);
-        printf("Wrote %zu structure seeds to %s\n", totalOutputSeeds, outputFile);
-
-        cudaFree(halfSeedsDevice);
-        cudaFree(structureSeedsDevice);
-        free(halfSeeds);
-        free(structureSeedsHost);
-
+    if (strcmp(mode, "river") == 0) {
+        riverToHalfSeeds(inputFile, outputFile);
+    } else if (strcmp(mode, "half") == 0) {
+        halfToStructureSeeds(inputFile, outputFile);
     } else if (strcmp(mode, "structure") == 0) {
-        inputFile = (argc >= 3) ? argv[2] : "structure_seeds.txt";
-        outputFile = (argc >= 4) ? argv[3] : "world_seeds.txt";
-
-        int numStructureSeeds = 0;
-        uint64_t* structureSeeds = readSeedsFromFile(inputFile, &numStructureSeeds);
-        if (!structureSeeds) return 1;
-
-        printf("Read %d structure seeds from %s\n", numStructureSeeds, inputFile);
-
-        size_t totalOutputSeeds = (size_t)numStructureSeeds * EXPANSION_SIZE;
-
-        int64_t* worldSeedsHost = (int64_t*)malloc(totalOutputSeeds * sizeof(int64_t));
-        if (!worldSeedsHost) {
-            fprintf(stderr, "Failed\n");
-            free(structureSeeds);
-            return 1;
-        }
-
-        uint64_t* structureSeedsDevice;
-        int64_t* worldSeedsDevice;
-
-        cudaMalloc(&structureSeedsDevice, numStructureSeeds * sizeof(uint64_t));
-        cudaMalloc(&worldSeedsDevice, totalOutputSeeds * sizeof(int64_t));
-
-        cudaMemcpy(structureSeedsDevice, structureSeeds, numStructureSeeds * sizeof(uint64_t), cudaMemcpyHostToDevice);
-
-        int blocks = (totalOutputSeeds + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-        printf("Launching kernel with %d blocks, %d threads per block\n", blocks, THREADS_PER_BLOCK);
-
-        structureToWorldKernel<<<blocks, THREADS_PER_BLOCK>>>(structureSeedsDevice, numStructureSeeds, worldSeedsDevice);
-        cudaDeviceSynchronize();
-
-        cudaMemcpy(worldSeedsHost, worldSeedsDevice, totalOutputSeeds * sizeof(int64_t), cudaMemcpyDeviceToHost);
-
-        writeSeedsToFileInt64(outputFile, worldSeedsHost, totalOutputSeeds);
-        printf("Wrote %zu world seeds to %s\n", totalOutputSeeds, outputFile);
-
-        cudaFree(structureSeedsDevice);
-        cudaFree(worldSeedsDevice);
-        free(structureSeeds);
-        free(worldSeedsHost);
-
+        structureToWorldSeedsGPU(inputFile, outputFile);
     } else {
-        fprintf(stderr, "Wrong mode '%s'. Use 'half' or 'structure'.\n", mode);
+        fprintf(stderr, "Unknown mode: %s\n", mode);
         return 1;
     }
 
