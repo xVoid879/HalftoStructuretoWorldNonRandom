@@ -1,8 +1,16 @@
 # HalftoStructuretoWorldNonRandom
 Basically a Cuda Program to turn a list of half seeds into structure seeds or turn a list of structure seeds into non-random world seeds. (Also can turn a list of river seeds into halfseeds)
 
-# Compile on Colab
+# How to use on Colab
+Log in or create a Google Account to use this.
+
 Click Runtime, and select T4 GPU.
+
+Click the files button (looks like a folder)
+
+And right-click the files area to upload or create a new file.
+
+Then create a code cell (should look like a "+ Code" button)
 
 Compile on Colab using this
 ```
