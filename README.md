@@ -50,3 +50,7 @@ One Structure Seed = 65536 World Seeds
 One River Seed = 64 Half Seeds
 
 If you want to go from structure to random world seeds (which is 0-2 world seeds from one structure seed) look at elenaran's program: https://github.com/elenaran/structure_to_random
+
+Thanks NelS for providing me with the original python scripts for turning a half seed into structure seeds and structure seeds into all possible world seeds. 
+
+https://github.com/nel-s
