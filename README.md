@@ -2,7 +2,7 @@
 Basically a Cuda Program to turn a list of half seeds into structure seeds or turn a list of structure seeds into non-random world seeds. (Also can turn a list of river seeds into halfseeds)
 
 # How to use on Colab
-Log in or create a Google Account to use this.
+Log in or create a Google Account to use [https://colab.research.google.com](Colab).
 
 Click Runtime, and select T4 GPU.
 
